@@ -1,0 +1,5 @@
+flask
+paho-mqtt
+opencv-python-headless
+requests
+# No new pip packages needed — sqlite3 is in stdlib

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Weather Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Leaflet for map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .refresh { animation: fade 2s infinite; }
+        #map { height: 320px; border-radius: 8px; width: 100%; }
+        .countdown { font-size: 1.2rem; font-weight: bold; color: #d32f2f; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        
+        @media (max-width: 768px) {
+            #map { height: 240px; }
+            .chart-container { height: 220px; }
+            h1 { font-size: 1.8rem; }
+        }
+    </style>
+</head>
+
+<body class="container py-4">
+    <h1 class="text-center mb-4">🌤️ Weather Dashboard</h1>
+
+    <div class="row">
+        <!-- MQTT Sensors + Graphs -->
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">📡 Configured MQTT Sensors</div>
+                <div class="card-body">
+                    <ul class="list-group mb-4">
+                        <li class="list-group-item"><strong>Temperature:</strong> {{ sensors.temperature or 'waiting...' }} °C</li>
+                        <li class="list-group-item"><strong>Humidity:</strong> {{ sensors.humidity or 'waiting...' }} %</li>
+                        <li class="list-group-item"><strong>Wind Direction:</strong> {{ sensors.wind_direction or 'waiting...' }}</li>
+                        <li class="list-group-item"><strong>Wind Speed:</strong> {{ sensors.wind_speed or 'waiting...' }} km/h</li>
+                    </ul>
+
+                    <!-- Graphs -->
+                    <h6 class="mt-4 mb-3">Last 24 hours</h6>
+                    <div class="chart-container">
+                        <canvas id="sensorChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Webcam + Countdown -->
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    📷 Webcam 
+                    (next in <span id="countdown" class="countdown">60</span>s)
+                </div>
+                <div class="card-body text-center">
+                    <img id="webcam" src="/latest_image" class="img-fluid border rounded" alt="Webcam" style="max-height: 400px;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map + Forecast side by side -->
+    <div class="row">
+        {% if lat and lon %}
+        <div class="col-lg-5 mb-4">
+            <div class="card h-100">
+                <div class="card-header">📍 Location</div>
+                <div class="card-body p-0">
+                    <div id="map"></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="{% if lat and lon %}col-lg-7{% else %}col-12{% endif %} mb-4">
+            <div class="card h-100">
+                <div class="card-header">📅 7-Day Forecast (Open-Meteo)</div>
+                <div class="card-body">
+                    {% if forecast %}
+                    <div class="table-responsive">
+                        <table class="table table-striped table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Condition</th>
+                                    <th>Max</th>
+                                    <th>Min</th>
+                                    <th>Precip %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for day in forecast %}
+                                <tr>
+                                    <td>{{ day.date }}</td>
+                                    <td>{{ day.condition }}</td>
+                                    <td>{{ day.max }}°C</td>
+                                    <td>{{ day.min }}°C</td>
+                                    <td>{{ day.precip }}%</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                        {% if lat and lon %}
+                        <p class="text-muted">Loading forecast data...</p>
+                        {% else %}
+                        <p class="text-muted">Set LATITUDE/LONGITUDE in .env for forecast</p>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Raw MQTT data (optional, collapsible) -->
+    {% if weather %}
+    <div class="card mb-4">
+        <div class="card-header" data-bs-toggle="collapse" data-bs-target="#rawData" role="button">
+            📡 Raw MQTT Data (click to expand)
+        </div>
+        <div id="rawData" class="card-body collapse">
+            <table class="table table-sm">
+                {% for key, value in weather.items() %}
+                <tr><td><strong>{{ key }}</strong></td><td>{{ value }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <script>
+        // Countdown
+        function updateCountdown() {
+            fetch('/next_capture')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('countdown').textContent = data.seconds_left;
+                })
+                .catch(() => {});
+        }
+        setInterval(updateCountdown, 1000);
+        updateCountdown();
+
+        // Webcam refresh - better cache busting
+        function refreshWebcam() {
+            const img = document.getElementById('webcam');
+            const url = new URL(img.src, window.location.origin);
+            url.searchParams.set('t', Date.now());
+            img.src = url.toString();
+        }
+        setInterval(refreshWebcam, 10000);   // every 10 seconds
+        refreshWebcam();  // initial
+
+        // Map
+        {% if lat and lon %}
+        var map = L.map('map').setView([{{ lat }}, {{ lon }}], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+        L.marker([{{ lat }}, {{ lon }}]).addTo(map)
+            .bindPopup('Your weather station').openPopup();
+        {% endif %}
+
+        // Optional: full page refresh fallback every 5 minutes
+        setTimeout(() => location.reload(), 300000);
+    </script>
+
+    <!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    // ... your existing countdown, webcam refresh, map code ...
+
+    // History chart
+    let sensorChart = null;
+
+    function updateChart() {
+        fetch('/history_data')
+            .then(r => r.json())
+            .then(data => {
+                const ctx = document.getElementById('sensorChart').getContext('2d');
+
+                if (sensorChart) {
+                    sensorChart.destroy();
+                }
+
+                sensorChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels.map(ts => {
+                            const d = new Date(ts);
+                            return d.getHours() + ":" + String(d.getMinutes()).padStart(2, '0');
+                        }),
+                        datasets: [
+                            {
+                                label: 'Temperature (°C)',
+                                data: data.temperature,
+                                borderColor: '#e74c3c',
+                                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                                yAxisID: 'y-temp',
+                                tension: 0.2,
+                                spanGaps: true
+                            },
+                            {
+                                label: 'Humidity (%)',
+                                data: data.humidity,
+                                borderColor: '#3498db',
+                                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                                yAxisID: 'y-hum',
+                                tension: 0.2,
+                                spanGaps: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        elements: {
+                            point: { radius: 0, hitRadius: 10 }
+                        },
+                        scales: {
+                            x: { 
+                                display: true, 
+                                title: { display: false },
+                                ticks: {
+                                    autoSkip: true,
+                                    maxTicksLimit: 6
+                                }
+                            },
+                            'y-temp': {
+                                type: 'linear',
+                                position: 'left',
+                                title: { display: true, text: '°C' },
+                                grid: { drawOnChartArea: false }
+                            },
+                            'y-hum': {
+                                type: 'linear',
+                                position: 'right',
+                                title: { display: true, text: '%' },
+                                grid: { drawOnChartArea: false }
+                            }
+                        },
+                        plugins: {
+                            legend: { position: 'top' },
+                            tooltip: { mode: 'index', intersect: false }
+                        }
+                    }
+                });
+            })
+            .catch(err => console.log('Chart fetch error:', err));
+    }
+
+    // Update chart every 60 seconds + on load
+    setInterval(updateChart, 60000);
+    updateChart();
+</script>
+
+</body>
+</html>

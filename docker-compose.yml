@@ -1,0 +1,14 @@
+services:
+  weather-dashboard:
+    build: .
+    ports:
+      - "${WEB_PORT:-5000}:5000"
+    volumes:
+      - ./screenshots:/app/screenshots
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
+    # For USB webcam only — uncomment the next 2 lines:
+    #devices:
+    #  - /dev/video0:/dev/video0
