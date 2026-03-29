@@ -13,6 +13,8 @@ A self-hosted web dashboard that combines **live webcam snapshots** with **real-
 - 🗓️ **7-day forecast** — pulled automatically from [Open-Meteo](https://open-meteo.com/) using your configured latitude/longitude (no API key needed)
 - 🐳 **Docker-ready** — ships with a `Dockerfile` and `docker-compose.yml` for easy deployment
 
+<img width="1043" height="863" alt="image" src="https://github.com/user-attachments/assets/ad39d144-f0ee-408f-84f5-9b1b528de7d1" />
+
 ---
 
 ## Requirements
