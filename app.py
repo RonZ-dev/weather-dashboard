@@ -128,7 +128,21 @@ if os.getenv('MQTT_USERNAME'):
 client.on_connect = on_connect
 client.on_message = on_message
 
-# ============== Webcam capture (unchanged) ==============
+# ============== Webcam capture ==============
+def cleanup_old_screenshots():
+    now = time.time()
+    cutoff = now - (24 * 3600)  # 24 hours ago
+    folder = '/app/screenshots'
+    for f in os.listdir(folder):
+        file_path = os.path.join(folder, f)
+        if f == 'latest.jpg' or not os.path.isfile(file_path):
+            continue
+        if os.path.getmtime(file_path) < cutoff:
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(f"Cleanup error deleting {f}: {e}")
+
 def capture_webcam():
     global next_capture_time
     while True:
@@ -141,6 +155,7 @@ def capture_webcam():
                 ts = time.strftime("%Y%m%d_%H%M%S")
                 cv2.imwrite(f"/app/screenshots/{ts}.jpg", frame)
                 print(f"📸 Screenshot saved at {ts}")
+                cleanup_old_screenshots()
             cap.release()
         except Exception as e:
             print(f"Webcam error: {e}")
